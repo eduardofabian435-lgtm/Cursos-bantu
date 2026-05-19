@@ -1,0 +1,153 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // -------------------------------------------------------------------------
+    // Global Safety Net
+    // -------------------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Helper Functions
+    // -------------------------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.get('email', '').lower() == "eduardofabian435@gmail.com") ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isTeacher() {
+      return isSignedIn() && (
+        isAdmin() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher')
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // -------------------------------------------------------------------------
+    // Entity Validations
+    // -------------------------------------------------------------------------
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'name', 'email', 'role', 'createdAt', 'updatedAt']) &&
+             data.uid is string && data.uid.size() <= 128 &&
+             data.name is string && data.name.size() <= 100 &&
+             data.email is string && data.email.size() <= 100 &&
+             data.role in ['student', 'admin', 'teacher'] &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidCourse(data) {
+      return data.keys().hasAll(['title', 'description', 'category', 'polo', 'status', 'createdAt', 'instructor', 'capacity', 'duration']) &&
+             data.title is string && data.title.size() <= 100 &&
+             data.description is string && data.description.size() <= 2000 &&
+             data.category is string &&
+             data.polo in ['Salvador', 'Ilha'] &&
+             data.instructor is string &&
+             data.duration is string &&
+             data.capacity is number &&
+             data.status in ['open', 'closed'] &&
+             data.createdAt is timestamp &&
+             (data.keys().hasAny(['instructorId']) == false || data.instructorId is string);
+    }
+
+    function isValidEnrollment(data) {
+      return data.keys().hasAll(['studentId', 'courseId', 'polo', 'status', 'studentData', 'createdAt', 'updatedAt', 'staffId']) &&
+             data.studentId is string &&
+             data.courseId is string &&
+             data.polo in ['Salvador', 'Ilha'] &&
+             data.staffId is string &&
+             data.status in ['pending', 'approved', 'rejected'] &&
+             data.studentData is map &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['userId', 'action', 'timestamp']) &&
+             data.userId == request.auth.uid &&
+             data.timestamp == request.time;
+    }
+
+    // -------------------------------------------------------------------------
+    // Collection Matches
+    // -------------------------------------------------------------------------
+
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isAdmin();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) && 
+                    incoming().diff(existing()).affectedKeys().hasAll(['updatedAt']) &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoURL', 'updatedAt', 'acceptedTermsAt', 'acceptedTermsIP', 'acceptedTermsVersion', 'lastAccessAt'])
+                    || isAdmin();
+    }
+
+    match /audit_logs/{logId} {
+      allow create: if isSignedIn() && isValidAuditLog(incoming());
+      allow read: if isAdmin();
+    }
+
+    match /courses/{courseId} {
+      allow read: if true; // Catalog is public
+      allow create: if isAdmin() && isValidCourse(incoming());
+      allow update, delete: if isAdmin();
+    }
+
+    match /enrollments/{enrollmentId} {
+      allow get: if isSignedIn() && (isOwner(existing().studentId) || isAdmin() || isTeacher());
+      allow list: if isAdmin() || isTeacher();
+      allow create: if isAdmin() && isValidEnrollment(incoming());
+      allow update: if isAdmin() && isValidEnrollment(incoming()) &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt', 'studentData']);
+      allow delete: if isAdmin();
+    }
+
+    match /attendance/{attendanceId} {
+      allow read, write: if isTeacher();
+    }
+
+    match /grades/{gradeId} {
+      allow read, write: if isTeacher();
+    }
+
+    match /scholarship_config/{configId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /student_scholarships/{scholarshipId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    
+    // Explicit Admin collection
+    match /admins/{adminId} {
+      allow read: if isSignedIn() && request.auth.uid == adminId;
+      allow write: if false; // Only manageable via Firebase Console or special script
+    }
+  }
+}

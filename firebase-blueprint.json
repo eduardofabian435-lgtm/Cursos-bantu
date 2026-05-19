@@ -1,0 +1,122 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "admin"] },
+        "acceptedTermsAt": { "type": "string", "format": "date-time" },
+        "acceptedTermsIP": { "type": "string" },
+        "acceptedTermsVersion": { "type": "string" },
+        "lastAccessAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "email", "role"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "Educational course offered by the institution",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "polo": { "type": "string", "enum": ["Salvador", "Ilha"] },
+        "duration": { "type": "string" },
+        "instructor": { "type": "string" },
+        "capacity": { "type": "number" },
+        "status": { "type": "string", "enum": ["open", "closed"] },
+        "imageUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "description", "category", "polo", "status"]
+    },
+    "Enrollment": {
+      "title": "Enrollment",
+      "description": "Student enrollment record for a course",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "courseId": { "type": "string" },
+        "polo": { "type": "string", "enum": ["Salvador", "Ilha"] },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "studentData": {
+          "type": "object",
+          "properties": {
+            "enrollmentDate": { "type": "string" },
+            "fullName": { "type": "string" },
+            "birthDate": { "type": "string" },
+            "age": { "type": "string" },
+            "phone": { "type": "string" },
+            "cpf": { "type": "string" },
+            "rg": { "type": "string" },
+            "motherName": { "type": "string" },
+            "fatherName": { "type": "string" },
+            "address": { "type": "string" },
+            "neighborhood": { "type": "string" },
+            "houseNumber": { "type": "string" },
+            "landmark": { "type": "string" },
+            "schoolName": { "type": "string" },
+            "schoolGrade": { "type": "string" },
+            "shift": { "type": "string", "enum": ["Matutino", "Vespertino", "Integral", "Noturno"] },
+            "integralDays": { "type": "string" },
+            "householdCount": { "type": "string" },
+            "housingCondition": { "type": "string", "enum": ["Própria", "Alugada", "Outros"] },
+            "incomePerCapita": { "type": "string" },
+            "receivesBenefit": { "type": "string", "enum": ["SIM", "NÃO"] },
+            "benefitDetail": { "type": "string" },
+            "paysElectricity": { "type": "string", "enum": ["SIM", "NÃO"] },
+            "paysWater": { "type": "string", "enum": ["SIM", "NÃO"] },
+            "guardianName": { "type": "string" },
+            "guardianCpf": { "type": "string" },
+            "guardianRg": { "type": "string" }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentId", "courseId", "status", "studentData"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Sensitive action tracking for accountability",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "action": { "type": "string" },
+        "resourceId": { "type": "string" },
+        "resourceType": { "type": "string" },
+        "details": { "type": "string" },
+        "ip": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "action", "timestamp"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "Individual user profiles"
+    },
+    "courses/{courseId}": {
+      "schema": "Course",
+      "description": "Course catalog"
+    },
+    "enrollments/{enrollmentId}": {
+      "schema": "Enrollment",
+      "description": "Enrollment records"
+    },
+    "audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "System audit trail"
+    }
+  }
+}
