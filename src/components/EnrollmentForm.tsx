@@ -110,11 +110,15 @@ export const EnrollmentForm: React.FC<Props> = ({
     );
 
     try {
+      const computedStudentId = formData.cpf 
+        ? formData.cpf.replace(/\D/g, '') 
+        : formData.fullName.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+
       const operation = enrollmentId ? 
         updateEnrollment(enrollmentId, { studentData: formData, polo: selectedPolo }) :
         createEnrollment({
           courseId,
-          studentId: 'presential_referral',
+          studentId: computedStudentId,
           staffId: user.uid,
           polo: selectedPolo,
           status: 'approved',

@@ -42,6 +42,7 @@ import {
   updateCourse,
   deleteCourse,
   deleteEnrollment,
+  deleteStudentScholarship,
   acceptTerms,
   logUserAccess,
   createAuditLog,
@@ -453,6 +454,61 @@ const AppContent = () => {
   const [editingEnrollment, setEditingEnrollment] = useState<Enrollment | null>(null);
   const [selectedPolo, setSelectedPolo] = useState<'Salvador' | 'Ilha' | 'Todos'>('Todos');
 
+  // Custom confirmation and alert modal states
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm: () => void | Promise<void>;
+    isDangerous?: boolean;
+  } | null>(null);
+
+  const [alertDialog, setAlertDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type: 'success' | 'error' | 'warning' | 'info';
+  } | null>(null);
+
+  const showSuccess = (message: string, title: string = "Sucesso") => {
+    setAlertDialog({
+      isOpen: true,
+      title,
+      message,
+      type: 'success'
+    });
+  };
+
+  const showError = (message: string, title: string = "Erro") => {
+    setAlertDialog({
+      isOpen: true,
+      title,
+      message,
+      type: 'error'
+    });
+  };
+
+  const showConfirm = (
+    title: string,
+    message: string,
+    onConfirm: () => void | Promise<void>,
+    isDangerous: boolean = false,
+    confirmText?: string,
+    cancelText?: string
+  ) => {
+    setConfirmDialog({
+      isOpen: true,
+      title,
+      message,
+      onConfirm,
+      isDangerous,
+      confirmText,
+      cancelText
+    });
+  };
+
   useEffect(() => {
     if (authLoading || !isAdmin || !user) return;
     
@@ -602,7 +658,7 @@ const AppContent = () => {
       console.error("Status update error:", error);
       // Revert optimism on error
       fetchAllEnrollments();
-      alert("Erro ao atualizar status. O sistema pode estar com limite de uso atingido.");
+      showError("Erro ao atualizar status. O sistema pode estar com limite de uso atingido.");
     }
   };
 
@@ -661,7 +717,7 @@ const AppContent = () => {
         errorMsg = "Limite de uso do Firebase atingido. O curso não pôde ser excluído no servidor.";
       }
       
-      alert(errorMsg);
+      showError(errorMsg);
     }
   };
 
@@ -669,44 +725,151 @@ const AppContent = () => {
     const enrollment = allEnrollments.find(e => e.id === id);
     if (!enrollment) return;
 
-    if (!window.confirm(`Deseja realmente excluir permanentemente a matrícula de ${enrollment.studentData.fullName}? Esta ação não pode ser desfeita.`)) {
+    showConfirm(
+      "Excluir Matrícula",
+      `Deseja realmente excluir permanentemente a matrícula de ${enrollment.studentData.fullName}? Esta ação não pode ser desfeita.`,
+      async () => {
+        // --- OPTIMISTIC DELETE WITH REBALANCING ---
+        const previousEnrollments = [...allEnrollments];
+        setAllEnrollments(prev => prev.filter(e => e.id !== id));
+
+        try {
+          console.log(`Iniciando exclusão da matrícula: ${id}`);
+          
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Timeout")), 30000)
+          );
+
+          await Promise.race([
+            deleteEnrollment(id),
+            timeoutPromise
+          ]);
+          await fetchStats();
+          showSuccess("A matrícula foi excluída com sucesso.");
+        } catch (error: any) {
+          console.error("Error in handleEnrollmentDelete:", error);
+          
+          if (error.message && error.message.includes("Timeout")) {
+            console.warn("Enrollment delete pending on server. Keeping optimistic UI state.");
+            return;
+          }
+
+          // Revert on actual hard error (not timeout)
+          setAllEnrollments(previousEnrollments);
+          
+          let errorMsg = "Não foi possível confirmar a exclusão. A matrícula foi restaurada.";
+          if (error.message?.includes('Quota exceeded') || error.message?.includes('resource-exhausted')) {
+            errorMsg = "Limite de uso atingido. A exclusão falhou no servidor.";
+          }
+          
+          showError(errorMsg);
+        }
+      },
+      true,
+      "Excluir Matrícula",
+      "Cancelar"
+    );
+  };
+
+  const handleStudentDeleteAllData = async (studentCpf: string | undefined, studentFullName: string) => {
+    const normalizeCpf = (cpfVal: string | undefined | null) => {
+      if (!cpfVal) return '';
+      return cpfVal.replace(/\D/g, '');
+    };
+
+    const normalizeName = (nameVal: string | undefined | null) => {
+      if (!nameVal) return '';
+      return nameVal.trim().toLowerCase().replace(/\s+/g, ' ');
+    };
+
+    const targetCpfNorm = normalizeCpf(studentCpf);
+    const targetNameNorm = normalizeName(studentFullName);
+
+    const enrollmentsToDelete = allEnrollments.filter(e => {
+      const eCpfNorm = normalizeCpf(e.studentData.cpf);
+      const eNameNorm = normalizeName(e.studentData.fullName);
+
+      if (targetCpfNorm && eCpfNorm) {
+        return targetCpfNorm === eCpfNorm;
+      }
+      return targetNameNorm === eNameNorm;
+    });
+
+    if (enrollmentsToDelete.length === 0) {
+      showError("Nenhum cadastro ou matrícula associada a este aluno foi encontrada para exclusão.");
       return;
     }
 
-    // --- OPTIMISTIC DELETE WITH REBALANCING ---
-    const previousEnrollments = [...allEnrollments];
-    setAllEnrollments(prev => prev.filter(e => e.id !== id));
+    showConfirm(
+      "ATENÇÃO MÁXIMA: Excluir Aluno",
+      `Deseja realmente excluir permanentemente TODOS os dados, matrículas, histórico e dados pessoais de "${studentFullName}"? Esta ação apagará completamente o aluno do sistema e é irreversível!`,
+      async () => {
+        // Guardar estado anterior para rollback
+        const previousEnrollments = [...allEnrollments];
+        const idsToDelete = enrollmentsToDelete.map(e => e.id);
+        
+        // Atualização otimista
+        setAllEnrollments(prev => prev.filter(e => !idsToDelete.includes(e.id)));
+        setViewingEnrollment(null);
 
-    try {
-      console.log(`Iniciando exclusão da matrícula: ${id}`);
-      
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout")), 30000)
-      );
+        try {
+          const studentIdKeys = Array.from(new Set(
+            enrollmentsToDelete.map(e => {
+              return e.studentId && e.studentId !== 'presential_referral'
+                ? e.studentId
+                : (e.studentData.cpf ? e.studentData.cpf.replace(/\D/g, '') : e.studentData.fullName.toLowerCase().trim().replace(/[^a-z0-9]/g, ''));
+            }).concat([
+              targetCpfNorm,
+              studentFullName.toLowerCase().trim().replace(/[^a-z0-9]/g, '')
+            ]).filter(Boolean) as string[]
+          ));
+          
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Timeout")), 45000)
+          );
 
-      await Promise.race([
-        deleteEnrollment(id),
-        timeoutPromise
-      ]);
-      await fetchStats();
-    } catch (error: any) {
-      console.error("Error in handleEnrollmentDelete:", error);
-      
-      if (error.message && error.message.includes("Timeout")) {
-        console.warn("Enrollment delete pending on server. Keeping optimistic UI state.");
-        return;
-      }
+          await Promise.race([
+            Promise.all([
+              ...enrollmentsToDelete.map(e => deleteEnrollment(e.id)),
+              deleteStudentScholarship(studentIdKeys)
+            ]),
+            timeoutPromise
+          ]);
 
-      // Revert on actual hard error (not timeout)
-      setAllEnrollments(previousEnrollments);
-      
-      let errorMsg = "Não foi possível confirmar a exclusão. A matrícula foi restaurada.";
-      if (error.message?.includes('Quota exceeded') || error.message?.includes('resource-exhausted')) {
-        errorMsg = "Limite de uso atingido. A exclusão falhou no servidor.";
-      }
-      
-      alert(errorMsg);
-    }
+          await Promise.all([
+            fetchStats(),
+            fetchAllEnrollments()
+          ]);
+          
+          // Registrar log de auditoria
+          try {
+            await createAuditLog({
+              userId: user?.uid || 'unknown',
+              userName: user?.displayName || user?.email || 'N/A',
+              action: 'DELETE_STUDENT_ALL_DATA',
+              details: `Exclusão total das informações do aluno: ${studentFullName} (${enrollmentsToDelete.length} cursos removidos)`,
+              ip: 'client-side'
+            });
+          } catch (logErr) {
+            console.warn("Falha ao criar log de auditoria para exclusão total de dados", logErr);
+          }
+
+          showSuccess("Todas as informações e matrículas do aluno foram excluídas permanentemente.");
+        } catch (error: any) {
+          console.error("Erro ao excluir dados totais do aluno:", error);
+          if (error.message && error.message.includes("Timeout")) {
+            console.warn("Lote de remoção de dados pendente no servidor. Mantendo interface otimista.");
+            return;
+          }
+
+          setAllEnrollments(previousEnrollments);
+          showError("Erro ao excluir todas as informações do aluno. O cadastro foi restaurado.");
+        }
+      },
+      true,
+      "Excluir Cadastro",
+      "Cancelar"
+    );
   };
 
   const handleAcceptTerms = async (metadata: { ip: string; version: string }) => {
@@ -1031,7 +1194,10 @@ const AppContent = () => {
                               const enrollment = studentEnrollments[0]; // Primary record for student data
                               const approvedCount = studentEnrollments.filter(e => e.status === 'approved').length;
                               const pendingCount = studentEnrollments.filter(e => e.status === 'pending').length;
-                              const scholarship = scholarships.find(s => s.studentId === enrollment.studentId);
+                              const studentKey = enrollment.studentId && enrollment.studentId !== 'presential_referral'
+                                ? enrollment.studentId
+                                : (enrollment.studentData.cpf ? enrollment.studentData.cpf.replace(/\D/g, '') : enrollment.studentData.fullName.toLowerCase().trim().replace(/[^a-z0-9]/g, ''));
+                              const scholarship = scholarships.find(s => s.studentId === studentKey || s.studentId === enrollment.studentId);
                               
                               return (
                                 <tr key={enrollment.studentData.cpf || enrollment.id} className="hover:bg-slate-50/30 transition-colors group">
@@ -1177,7 +1343,7 @@ const AppContent = () => {
                   setShowCourseForm(false);
                   setEditingCourse(null);
                   await Promise.all([fetchCourses(), fetchStats()]);
-                  alert(editingCourse ? "Curso atualizado com sucesso!" : "Curso criado com sucesso!");
+                  showSuccess(editingCourse ? "Curso atualizado com sucesso!" : "Curso criado com sucesso!");
                 }}
                 onCancel={() => {
                   setShowCourseForm(false);
@@ -2049,6 +2215,14 @@ const AppContent = () => {
                   >
                     <Edit2 className="w-4 h-4" /> Editar Informações
                   </button>
+                  <button 
+                    onClick={() => {
+                      handleStudentDeleteAllData(viewingEnrollment.studentData.cpf, viewingEnrollment.studentData.fullName);
+                    }}
+                    className="flex-1 flex items-center justify-center gap-2 text-rose-600 bg-rose-50 hover:bg-rose-100 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-rose-200 shadow-sm"
+                  >
+                    <Trash2 className="w-4 h-4" /> Excluir Cadastro
+                  </button>
                 </div>
 
               <div className="p-8 overflow-y-auto space-y-10 custom-scrollbar">
@@ -2079,8 +2253,13 @@ const AppContent = () => {
                                   </button>
                                 </>
                               )}
-                              <button onClick={() => handleEnrollmentDelete(e.id)} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100" title="Excluir">
-                                <Trash2 className="w-4 h-4" />
+                              <button 
+                                onClick={() => handleEnrollmentDelete(e.id)} 
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-black text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-xl transition-all border border-rose-100 shadow-sm" 
+                                title="Excluir Matrícula"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span className="text-[9px] uppercase tracking-wider">Excluir</span>
                               </button>
                             </div>
                           </div>
@@ -2097,7 +2276,10 @@ const AppContent = () => {
                   </h4>
                   {(() => {
                     const studentEnrollments = groupedEnrollments[viewingEnrollment.studentData.cpf || viewingEnrollment.studentData.fullName] || [viewingEnrollment];
-                    const scholarship = scholarships.find(s => s.studentId === viewingEnrollment.studentId);
+                    const studentKey = viewingEnrollment.studentId && viewingEnrollment.studentId !== 'presential_referral'
+                      ? viewingEnrollment.studentId
+                      : (viewingEnrollment.studentData.cpf ? viewingEnrollment.studentData.cpf.replace(/\D/g, '') : viewingEnrollment.studentData.fullName.toLowerCase().trim().replace(/[^a-z0-9]/g, ''));
+                    const scholarship = scholarships.find(s => s.studentId === studentKey || s.studentId === viewingEnrollment.studentId);
                     const isEligible = studentEnrollments.length >= 2;
 
                     if (!scholarship && !isEligible) return null;
@@ -2523,6 +2705,101 @@ const AppContent = () => {
           <TeacherPanelModal 
             onClose={() => setShowTeacherPanel(false)}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Custom Confirmation Dialog */}
+      <AnimatePresence>
+        {confirmDialog && confirmDialog.isOpen && (
+          <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setConfirmDialog(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-3xl p-8 max-w-md w-full relative z-10 shadow-2xl border border-slate-100 flex flex-col items-center text-center"
+            >
+              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-5 ${confirmDialog.isDangerous ? 'bg-rose-50 text-rose-600 border border-rose-100' : 'bg-indigo-50 text-indigo-600 border border-indigo-100'}`}>
+                <AlertCircle className="w-7 h-7" />
+              </div>
+              <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight mb-2">{confirmDialog.title}</h3>
+              <p className="text-slate-600 text-sm font-medium leading-relaxed mb-8">{confirmDialog.message}</p>
+              
+              <div className="flex gap-3 w-full">
+                <button
+                  type="button"
+                  onClick={() => setConfirmDialog(null)}
+                  className="flex-1 px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest text-slate-500 bg-slate-100 hover:bg-slate-200 transition-colors"
+                >
+                  {confirmDialog.cancelText || "Cancelar"}
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const callback = confirmDialog.onConfirm;
+                    setConfirmDialog(null);
+                    await callback();
+                  }}
+                  className={`flex-1 px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest text-white transition-all shadow-md ${
+                    confirmDialog.isDangerous 
+                      ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-100 animate-pulse' 
+                      : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100'
+                  }`}
+                >
+                  {confirmDialog.confirmText || "Confirmar"}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Custom Alert Dialog */}
+      <AnimatePresence>
+        {alertDialog && alertDialog.isOpen && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setAlertDialog(null)}
+              className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-3xl p-8 max-w-sm w-full relative z-10 shadow-2xl border border-slate-100 flex flex-col items-center text-center"
+            >
+              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-5 ${
+                alertDialog.type === 'success' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                alertDialog.type === 'error' ? 'bg-rose-50 text-rose-600 border border-rose-100' :
+                'bg-indigo-50 text-indigo-600 border border-indigo-100'
+              }`}>
+                {alertDialog.type === 'success' ? (
+                  <CheckCircle className="w-7 h-7" />
+                ) : (
+                  <AlertCircle className="w-7 h-7" />
+                )}
+              </div>
+              <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight mb-2">{alertDialog.title}</h3>
+              <p className="text-slate-600 text-sm font-medium leading-relaxed mb-6">{alertDialog.message}</p>
+              
+              <button
+                type="button"
+                onClick={() => setAlertDialog(null)}
+                className="w-full px-5 py-3 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors"
+              >
+                OK
+              </button>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>

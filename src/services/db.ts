@@ -596,3 +596,20 @@ export const getStudentScholarships = async (): Promise<StudentScholarship[]> =>
     return [];
   }
 };
+
+export const deleteStudentScholarship = async (studentIdOrIds: string | string[]) => {
+  try {
+    const ids = Array.isArray(studentIdOrIds) ? studentIdOrIds : [studentIdOrIds];
+    for (const studentId of ids) {
+      if (!studentId) continue;
+      const q = query(collection(db, 'student_scholarships'), where('studentId', '==', studentId));
+      const snapshot = await getDocs(q);
+      for (const d of snapshot.docs) {
+        await deleteDoc(doc(db, 'student_scholarships', d.id));
+      }
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, 'student_scholarships');
+    throw error;
+  }
+};

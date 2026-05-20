@@ -121,13 +121,17 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, initi
   };
 
   const getStudentsEligibility = () => {
-    const studentEnrollments: { [studentId: string]: { name: string, count: number } } = {};
+    const studentEnrollments: { [studentId: string]: { name: string, count: number, originalStudentId: string } } = {};
     // Count all enrollments regardless of status as requested ("registrados")
     enrollments.forEach(e => {
-      if (!studentEnrollments[e.studentId]) {
-        studentEnrollments[e.studentId] = { name: e.studentData.fullName, count: 0 };
+      const actualStudentId = e.studentId && e.studentId !== 'presential_referral'
+        ? e.studentId
+        : (e.studentData.cpf ? e.studentData.cpf.replace(/\D/g, '') : e.studentData.fullName.toLowerCase().trim().replace(/[^a-z0-9]/g, ''));
+
+      if (!studentEnrollments[actualStudentId]) {
+        studentEnrollments[actualStudentId] = { name: e.studentData.fullName, count: 0, originalStudentId: e.studentId };
       }
-      studentEnrollments[e.studentId].count++;
+      studentEnrollments[actualStudentId].count++;
     });
 
     return Object.entries(studentEnrollments)
@@ -136,7 +140,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, initi
         studentName: data.name,
         enrolledCount: data.count,
         isEligible: data.count >= 2,
-        currentStatus: scholarships.find(s => s.studentId === studentId)?.status || 'none'
+        currentStatus: scholarships.find(s => s.studentId === studentId || s.studentId === data.originalStudentId)?.status || 'none'
       }))
       .filter(s => s.isEligible || scholarships.some(schol => schol.studentId === s.studentId));
   };

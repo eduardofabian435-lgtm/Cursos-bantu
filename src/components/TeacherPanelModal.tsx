@@ -61,7 +61,7 @@ export const TeacherPanelModal: React.FC<TeacherPanelModalProps> = ({ onClose })
   
   // Attendance session state
   const [isTakingAttendance, setIsTakingAttendance] = useState(false);
-  const [attendanceList, setAttendanceList] = useState<{ id: string; studentId: string; studentName: string; status: 'present' | 'absent' }[]>([]);
+  const [attendanceList, setAttendanceList] = useState<{ id: string; studentId: string; studentName: string; studentCpf?: string; status: 'present' | 'absent' }[]>([]);
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -131,6 +131,7 @@ export const TeacherPanelModal: React.FC<TeacherPanelModalProps> = ({ onClose })
       id: s.id || `temp-${idx}-${Date.now()}`,
       studentId: s.studentId,
       studentName: s.studentData.fullName,
+      studentCpf: s.studentData.cpf,
       status: 'present'
     })));
     setSearchTerm('');
@@ -359,8 +360,16 @@ export const TeacherPanelModal: React.FC<TeacherPanelModalProps> = ({ onClose })
                           <div className="flex items-center gap-2">
                              <p className="text-sm font-black text-slate-900 uppercase">{item.studentName}</p>
                              {(() => {
-                               const scholarship = scholarships.find(s => s.studentId === item.studentId);
-                               const studentEnrs = enrollments.filter(e => e.studentId === item.studentId && e.status === 'approved');
+                               const studentKey = item.studentId && item.studentId !== 'presential_referral' 
+                                 ? item.studentId 
+                                 : (item.studentCpf ? item.studentCpf.replace(/\D/g, '') : item.studentName.toLowerCase().trim().replace(/[^a-z0-9]/g, ''));
+                               const scholarship = scholarships.find(s => s.studentId === studentKey || s.studentId === item.studentId);
+                               const studentEnrs = enrollments.filter(e => {
+                                 const eKey = e.studentId && e.studentId !== 'presential_referral' 
+                                   ? e.studentId 
+                                   : (e.studentData?.cpf ? e.studentData.cpf.replace(/\D/g, '') : e.studentData?.fullName.toLowerCase().trim().replace(/[^a-z0-9]/g, ''));
+                                 return eKey === studentKey && e.status === 'approved';
+                               });
                                const isEligible = studentEnrs.length >= 2;
                                
                                if (scholarship?.status === 'active') {
@@ -446,8 +455,16 @@ export const TeacherPanelModal: React.FC<TeacherPanelModalProps> = ({ onClose })
                                   <p className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">{student.studentData.cpf}</p>
                                 </div>
                                 {(() => {
-                                  const scholarship = scholarships.find(s => s.studentId === student.studentId);
-                                  const studentEnrs = enrollments.filter(e => e.studentId === student.studentId && e.status === 'approved');
+                                  const studentKey = student.studentId && student.studentId !== 'presential_referral' 
+                                    ? student.studentId 
+                                    : (student.studentData?.cpf ? student.studentData.cpf.replace(/\D/g, '') : student.studentData?.fullName.toLowerCase().trim().replace(/[^a-z0-9]/g, ''));
+                                  const scholarship = scholarships.find(s => s.studentId === studentKey || s.studentId === student.studentId);
+                                  const studentEnrs = enrollments.filter(e => {
+                                    const eKey = e.studentId && e.studentId !== 'presential_referral' 
+                                      ? e.studentId 
+                                      : (e.studentData?.cpf ? e.studentData.cpf.replace(/\D/g, '') : e.studentData?.fullName.toLowerCase().trim().replace(/[^a-z0-9]/g, ''));
+                                    return eKey === studentKey && e.status === 'approved';
+                                  });
                                   const isEligible = studentEnrs.length >= 2;
                                   
                                   if (scholarship?.status === 'active') {
@@ -615,9 +632,14 @@ export const TeacherPanelModal: React.FC<TeacherPanelModalProps> = ({ onClose })
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <p className="text-xs font-black text-slate-900 uppercase truncate">{student.studentData.fullName}</p>
-                              {scholarships.find(s => s.studentId === student.studentId)?.status === 'active' && (
-                                <PiggyBank className="w-3 h-3 text-emerald-500 shrink-0" />
-                              )}
+                              {(() => {
+                                const studentKey = student.studentId && student.studentId !== 'presential_referral' 
+                                  ? student.studentId 
+                                  : (student.studentData?.cpf ? student.studentData.cpf.replace(/\D/g, '') : student.studentData?.fullName.toLowerCase().trim().replace(/[^a-z0-9]/g, ''));
+                                return (scholarships.find(s => s.studentId === studentKey || s.studentId === student.studentId)?.status === 'active') && (
+                                  <PiggyBank className="w-3 h-3 text-emerald-500 shrink-0" />
+                                );
+                              })()}
                             </div>
                             <p className="text-[10px] text-slate-400 font-medium uppercase tracking-tight">{student.studentData.phone}</p>
                           </div>
