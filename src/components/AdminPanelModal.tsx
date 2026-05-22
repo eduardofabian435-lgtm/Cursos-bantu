@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
-import { 
-  ShieldCheck, 
-  Users, 
-  History, 
-  X, 
-  Crown, 
-  UserPlus, 
+import React, { useState, useEffect } from "react";
+import { motion } from "motion/react";
+import {
+  ShieldCheck,
+  Users,
+  History,
+  X,
+  Crown,
+  UserPlus,
   UserMinus,
   Search,
   Activity,
@@ -16,13 +16,13 @@ import {
   PiggyBank,
   Settings,
   CheckCircle2,
-  AlertTriangle
-} from 'lucide-react';
-import { 
-  getUsers, 
-  updateUserRole, 
-  getAuditLogs, 
-  UserProfile, 
+  AlertTriangle,
+} from "lucide-react";
+import {
+  getUsers,
+  updateUserRole,
+  getAuditLogs,
+  UserProfile,
   AuditLog,
   getScholarshipConfig,
   saveScholarshipConfig,
@@ -31,29 +31,38 @@ import {
   getAllEnrollments,
   Enrollment,
   ScholarshipConfig,
-  StudentScholarship
-} from '../services/db';
+  StudentScholarship,
+} from "../services/db";
 
 interface AdminPanelModalProps {
   onClose: () => void;
-  initialTab?: 'users' | 'logs' | 'scholarships';
+  initialTab?: "users" | "logs" | "scholarships";
   onDataUpdate?: () => void;
 }
 
-export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, initialTab = 'users', onDataUpdate }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'logs' | 'scholarships'>(initialTab);
+export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
+  onClose,
+  initialTab = "users",
+  onDataUpdate,
+}) => {
+  const [activeTab, setActiveTab] = useState<"users" | "logs" | "scholarships">(
+    initialTab,
+  );
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [scholarships, setScholarships] = useState<StudentScholarship[]>([]);
-  const [scholarshipConfig, setScholarshipConfig] = useState<ScholarshipConfig | null>(null);
+  const [scholarshipConfig, setScholarshipConfig] =
+    useState<ScholarshipConfig | null>(null);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  
+  const [searchTerm, setSearchTerm] = useState("");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
   const [editingConfig, setEditingConfig] = useState({
-    monthlyValue: '550',
-    benefits: 'Transporte + Refeição',
-    requirements: 'Mínimo de 2 cursos inscritos simultaneamente'
+    monthlyValue: "550",
+    benefits: "Transporte + Refeição",
+    requirements: "Mínimo de 1 curso inscrito",
   });
 
   useEffect(() => {
@@ -62,17 +71,17 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, initi
 
   const loadData = async () => {
     setLoading(true);
-    if (activeTab === 'users') {
+    if (activeTab === "users") {
       const data = await getUsers();
       setUsers(data);
-    } else if (activeTab === 'logs') {
+    } else if (activeTab === "logs") {
       const data = await getAuditLogs(100);
       setLogs(data);
-    } else if (activeTab === 'scholarships') {
+    } else if (activeTab === "scholarships") {
       const [enrs, schols, config] = await Promise.all([
         getAllEnrollments(),
         getStudentScholarships(),
-        getScholarshipConfig()
+        getScholarshipConfig(),
       ]);
       setEnrollments(enrs);
       setScholarships(schols);
@@ -80,8 +89,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, initi
         setScholarshipConfig(config);
         setEditingConfig({
           monthlyValue: config.monthlyValue.toString(),
-          benefits: config.benefits.join(', '),
-          requirements: config.requirements
+          benefits: config.benefits.join(", "),
+          requirements: config.requirements,
         });
       }
     }
@@ -90,46 +99,93 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, initi
 
   const handleSaveConfig = async () => {
     try {
+      setErrorMsg(null);
+      setSuccessMsg(null);
       await saveScholarshipConfig({
         monthlyValue: parseFloat(editingConfig.monthlyValue),
-        benefits: editingConfig.benefits.split(',').map(b => b.trim()),
+        benefits: editingConfig.benefits.split(",").map((b) => b.trim()),
         requirements: editingConfig.requirements,
-        updatedAt: new Date()
+        updatedAt: new Date(),
       });
-      alert('Configuração de bolsa salva com sucesso!');
-      loadData();
+      setSuccessMsg("Configuração de bolsa salva com sucesso!");
+      await loadData();
       if (onDataUpdate) onDataUpdate();
-    } catch (error) {
-      alert('Erro ao salvar configuração');
+    } catch (error: any) {
+      console.error("[AdminPanelModal] Error saving config:", error);
+      setErrorMsg(error?.message || "Erro ao salvar configuração");
     }
   };
 
-  const notifyScholarshipUpdate = async (studentId: string, name: string, count: number, status: StudentScholarship['status']) => {
+  const notifyScholarshipUpdate = async (
+    studentId: string,
+    name: string,
+    count: number,
+    status: StudentScholarship["status"],
+    originalStudentId?: string,
+  ) => {
     try {
+      setErrorMsg(null);
+      setSuccessMsg(null);
+      console.log(
+        `[Scholarship Sync] Updating ${name} (${studentId}) to status: ${status}`,
+      );
+
       await updateStudentScholarship({
         studentId,
         studentName: name,
         enrolledCoursesCount: count,
         status,
-        updatedAt: new Date()
+        updatedAt: new Date(),
+        originalStudentId,
       });
-      loadData();
+
+      const friendlyStatus =
+        status === "active"
+          ? "bolsa aprovada"
+          : status === "suspended"
+            ? "bolsa suspensa"
+            : "bolsa cancelada";
+      setSuccessMsg(`Status de ${name} atualizado: ${friendlyStatus}!`);
+
+      await loadData();
       if (onDataUpdate) onDataUpdate();
-    } catch (error) {
-      alert('Erro ao atualizar status da bolsa');
+    } catch (error: any) {
+      console.error(
+        "[AdminPanelModal] Error updating scholarship status:",
+        error,
+      );
+      setErrorMsg(
+        error?.message || "Erro ao atualizar status da bolsa do aluno",
+      );
     }
   };
 
   const getStudentsEligibility = () => {
-    const studentEnrollments: { [studentId: string]: { name: string, count: number, originalStudentId: string } } = {};
+    const studentEnrollments: {
+      [studentId: string]: {
+        name: string;
+        count: number;
+        originalStudentId: string;
+      };
+    } = {};
     // Count all enrollments regardless of status as requested ("registrados")
-    enrollments.forEach(e => {
-      const actualStudentId = e.studentId && e.studentId !== 'presential_referral'
-        ? e.studentId
-        : (e.studentData.cpf ? e.studentData.cpf.replace(/\D/g, '') : e.studentData.fullName.toLowerCase().trim().replace(/[^a-z0-9]/g, ''));
+    enrollments.forEach((e) => {
+      const actualStudentId =
+        e.studentId && e.studentId !== "presential_referral"
+          ? e.studentId
+          : e.studentData.cpf
+            ? e.studentData.cpf.replace(/\D/g, "")
+            : e.studentData.fullName
+                .toLowerCase()
+                .trim()
+                .replace(/[^a-z0-9]/g, "");
 
       if (!studentEnrollments[actualStudentId]) {
-        studentEnrollments[actualStudentId] = { name: e.studentData.fullName, count: 0, originalStudentId: e.studentId };
+        studentEnrollments[actualStudentId] = {
+          name: e.studentData.fullName,
+          count: 0,
+          originalStudentId: e.studentId,
+        };
       }
       studentEnrollments[actualStudentId].count++;
     });
@@ -139,28 +195,43 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, initi
         studentId,
         studentName: data.name,
         enrolledCount: data.count,
-        isEligible: data.count >= 2,
-        currentStatus: scholarships.find(s => s.studentId === studentId || s.studentId === data.originalStudentId)?.status || 'none'
+        isEligible: data.count >= 1,
+        originalStudentId: data.originalStudentId,
+        currentStatus:
+          scholarships.find(
+            (s) =>
+              s.studentId === studentId ||
+              s.studentId === data.originalStudentId,
+          )?.status || "none",
       }))
-      .filter(s => s.isEligible || scholarships.some(schol => schol.studentId === s.studentId));
+      .filter(
+        (s) =>
+          s.enrolledCount >= 1 ||
+          scholarships.some((schol) => schol.studentId === s.studentId),
+      );
   };
 
   const handleToggleRole = async (user: UserProfile) => {
-    let newRole: 'student' | 'admin' | 'teacher';
-    
-    if (user.role === 'admin') newRole = 'student';
-    else if (user.role === 'teacher') newRole = 'admin';
-    else newRole = 'teacher';
+    let newRole: "student" | "admin" | "teacher";
 
-    if (window.confirm(`Deseja alterar o cargo de ${user.name} para ${newRole.toUpperCase()}?`)) {
+    if (user.role === "admin") newRole = "student";
+    else if (user.role === "teacher") newRole = "admin";
+    else newRole = "teacher";
+
+    if (
+      window.confirm(
+        `Deseja alterar o cargo de ${user.name} para ${newRole.toUpperCase()}?`,
+      )
+    ) {
       await updateUserRole(user.uid, newRole);
       loadData();
     }
   };
 
-  const filteredUsers = users.filter(u => 
-    u.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    u.email?.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredUsers = users.filter(
+    (u) =>
+      u.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      u.email?.toLowerCase().includes(searchTerm.toLowerCase()),
   );
 
   return (
@@ -183,9 +254,11 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, initi
               <Crown className="w-7 h-7" />
             </div>
             <div>
-              <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Painel de Controle</h2>
+              <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">
+                Painel de Controle
+              </h2>
               <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] mt-1 flex items-center gap-2">
-                Restrito • Acesso Master de Criador 
+                Restrito • Acesso Master de Criador
                 <span className="w-1 h-1 rounded-full bg-slate-300" />
                 Auditado
               </p>
@@ -193,27 +266,27 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, initi
           </div>
 
           <div className="flex items-center gap-2 p-1.5 bg-slate-100 rounded-2xl border border-slate-200">
-            <button 
-              onClick={() => setActiveTab('users')}
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'users' ? 'bg-white text-slate-900 shadow-xl shadow-slate-200/50 scale-105' : 'text-slate-400 hover:text-slate-600'}`}
+            <button
+              onClick={() => setActiveTab("users")}
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "users" ? "bg-white text-slate-900 shadow-xl shadow-slate-200/50 scale-105" : "text-slate-400 hover:text-slate-600"}`}
             >
               <Users className="w-4 h-4" /> Usuários
             </button>
-            <button 
-              onClick={() => setActiveTab('logs')}
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'logs' ? 'bg-white text-slate-900 shadow-xl shadow-slate-200/50 scale-105' : 'text-slate-400 hover:text-slate-600'}`}
+            <button
+              onClick={() => setActiveTab("logs")}
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "logs" ? "bg-white text-slate-900 shadow-xl shadow-slate-200/50 scale-105" : "text-slate-400 hover:text-slate-600"}`}
             >
               <History className="w-4 h-4" /> Trilha de Auditoria
             </button>
-            <button 
-              onClick={() => setActiveTab('scholarships')}
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'scholarships' ? 'bg-white text-slate-900 shadow-xl shadow-slate-200/50 scale-105' : 'text-slate-400 hover:text-slate-600'}`}
+            <button
+              onClick={() => setActiveTab("scholarships")}
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "scholarships" ? "bg-white text-slate-900 shadow-xl shadow-slate-200/50 scale-105" : "text-slate-400 hover:text-slate-600"}`}
             >
               <PiggyBank className="w-4 h-4" /> Bolsas
             </button>
           </div>
 
-          <button 
+          <button
             onClick={onClose}
             className="p-3 hover:bg-slate-200 rounded-2xl transition-all text-slate-400 hover:text-slate-900"
           >
@@ -223,14 +296,43 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, initi
 
         {/* Content Area */}
         <div className="flex-1 overflow-hidden flex flex-col bg-slate-50/30">
-          
+          {errorMsg && (
+            <div className="mx-8 mt-4 p-4 bg-rose-50 border border-rose-100 text-rose-700 rounded-2xl flex items-center justify-between text-xs font-black uppercase tracking-widest animate-pulse shrink-0">
+              <span className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 shrink-0 text-rose-500" />
+                {errorMsg}
+              </span>
+              <button
+                onClick={() => setErrorMsg(null)}
+                className="p-1 hover:bg-rose-100 rounded-lg transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {successMsg && (
+            <div className="mx-8 mt-4 p-4 bg-emerald-50 border border-emerald-100 text-emerald-700 rounded-2xl flex items-center justify-between text-xs font-black uppercase tracking-widest shrink-0">
+              <span className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-500" />
+                {successMsg}
+              </span>
+              <button
+                onClick={() => setSuccessMsg(null)}
+                className="p-1 hover:bg-emerald-100 rounded-lg transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {/* Search/Filter Bar */}
-          {activeTab === 'users' && (
+          {activeTab === "users" && (
             <div className="px-8 py-6">
               <div className="relative">
                 <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   placeholder="BUSCAR POR NOME OU E-MAIL..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -246,49 +348,60 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, initi
               <div className="h-full flex items-center justify-center">
                 <Activity className="w-10 h-10 text-slate-200 animate-pulse" />
               </div>
-            ) : activeTab === 'scholarships' ? (
+            ) : activeTab === "scholarships" ? (
               <div className="p-8 space-y-10">
                 {/* Scholarship Configuration */}
                 <div className="bg-white border border-slate-100 rounded-[2.5rem] p-10 shadow-xl shadow-slate-100/50">
                   <div className="flex items-center gap-4 mb-8">
-                     <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 shadow-lg shadow-indigo-100">
-                        <Settings className="w-6 h-6" />
-                     </div>
-                     <div>
-                        <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter">Configuração de Benefícios</h3>
-                        <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Defina o valor base e regras para concessão de bolsas</p>
-                     </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-8">
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Valor Mensal (R$)</label>
-                       <input 
-                         type="number"
-                         value={editingConfig.monthlyValue}
-                         onChange={e => setEditingConfig(p => ({ ...p, monthlyValue: e.target.value }))}
-                         className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-6 py-4 text-sm font-black text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100 transition-all font-mono"
-                       />
+                    <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 shadow-lg shadow-indigo-100">
+                      <Settings className="w-6 h-6" />
                     </div>
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Benefícios Extras</label>
-                       <input 
-                         value={editingConfig.benefits}
-                         onChange={e => setEditingConfig(p => ({ ...p, benefits: e.target.value }))}
-                         placeholder="Ex: Refeição, Transporte"
-                         className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-6 py-4 text-sm font-bold text-slate-600 outline-none focus:ring-4 focus:ring-indigo-100 transition-all"
-                       />
-                    </div>
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Requisito Principal</label>
-                       <div className="flex items-center gap-3 bg-emerald-50 text-emerald-700 px-6 py-4 rounded-2xl border border-emerald-100">
-                          <CheckCircle2 className="w-5 h-5 shrink-0" />
-                          <span className="text-[11px] font-black uppercase tracking-tight">Regra: 2+ Cursos (Automático)</span>
-                       </div>
+                    <div>
+                      <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter">
+                        Configuração de Benefícios
+                      </h3>
+                      <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">
+                        Defina o valor base e benefícios extras do programa de bolsas
+                      </p>
                     </div>
                   </div>
 
-                  <button 
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">
+                        Valor Mensal (R$)
+                      </label>
+                      <input
+                        type="number"
+                        value={editingConfig.monthlyValue}
+                        onChange={(e) =>
+                          setEditingConfig((p) => ({
+                            ...p,
+                            monthlyValue: e.target.value,
+                          }))
+                        }
+                        className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-6 py-4 text-sm font-black text-slate-900 outline-none focus:ring-4 focus:ring-indigo-100 transition-all font-mono"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">
+                        Benefícios Extras
+                      </label>
+                      <input
+                        value={editingConfig.benefits}
+                        onChange={(e) =>
+                          setEditingConfig((p) => ({
+                            ...p,
+                            benefits: e.target.value,
+                          }))
+                        }
+                        placeholder="Ex: Refeição, Transporte"
+                        className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-6 py-4 text-sm font-bold text-slate-600 outline-none focus:ring-4 focus:ring-indigo-100 transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  <button
                     onClick={handleSaveConfig}
                     className="bg-slate-900 text-white px-10 py-5 rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-slate-200"
                   >
@@ -298,89 +411,135 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, initi
 
                 {/* Eligible Students List */}
                 <div>
-                   <div className="flex items-center justify-between mb-8">
-                      <div>
-                        <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Gestão de Bolsistas</h3>
-                        <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">Alunos qualificados pela regra de múltiplos cursos</p>
-                      </div>
-                      <div className="bg-indigo-50 text-indigo-700 px-6 py-2.5 rounded-full border border-indigo-100 text-[10px] font-black uppercase tracking-widest">
-                         {getStudentsEligibility().filter(s => s.isEligible).length} Elegíveis Agora
-                      </div>
-                   </div>
+                  <div className="flex items-center justify-between mb-8">
+                    <div>
+                      <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">
+                        Gestão de Bolsistas
+                      </h3>
+                      <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">
+                        Controle manual da concessão de bolsas por aluno
+                      </p>
+                    </div>
+                    <div className="bg-slate-50 text-slate-600 px-6 py-2.5 rounded-full border border-slate-100 text-[10px] font-black uppercase tracking-widest">
+                      {getStudentsEligibility().length} Alunos Disponíveis
+                    </div>
+                  </div>
 
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-20">
-                      {getStudentsEligibility().map((student) => (
-                        <div key={student.studentId} className="bg-white border border-slate-100 p-6 rounded-[2rem] shadow-sm hover:shadow-xl hover:shadow-slate-100 transition-all group">
-                           <div className="flex items-start justify-between mb-4">
-                              <div className="flex items-center gap-4">
-                                 <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center font-black text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-all">
-                                   {student.studentName.slice(0, 2).toUpperCase()}
-                                 </div>
-                                 <div>
-                                   <p className="text-xs font-black text-slate-900 uppercase">{student.studentName}</p>
-                                   <div className="flex items-center gap-2 mt-1">
-                                      <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded text-[9px] font-black uppercase">
-                                        {student.enrolledCount} Cursos
-                                      </span>
-                                      {student.isEligible && (
-                                        <span className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded text-[9px] font-black uppercase border border-emerald-100">
-                                          Qualificado
-                                        </span>
-                                      )}
-                                   </div>
-                                 </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-20">
+                    {getStudentsEligibility().map((student) => (
+                      <div
+                        key={student.studentId}
+                        className="bg-white border border-slate-100 p-6 rounded-[2rem] shadow-sm hover:shadow-xl hover:shadow-slate-100 transition-all group"
+                      >
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center font-black text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-all">
+                              {student.studentName.slice(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="text-xs font-black text-slate-900 uppercase">
+                                {student.studentName}
+                              </p>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded text-[9px] font-black uppercase">
+                                  {student.enrolledCount} Cursos
+                                </span>
                               </div>
-                              <div className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest border ${
-                                student.currentStatus === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
-                                student.currentStatus === 'suspended' ? 'bg-rose-50 text-rose-700 border-rose-100' :
-                                'bg-slate-50 text-slate-400 border-slate-100'
-                              }`}>
-                                {student.currentStatus === 'none' ? 'Sem Bolsa' : 
-                                 student.currentStatus === 'active' ? 'Ativa' : 
-                                 student.currentStatus === 'pending' ? 'Pendente' : 
-                                 'Suspenso'}
-                              </div>
-                           </div>
+                            </div>
+                          </div>
+                          <div
+                            className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest border ${
+                              student.currentStatus === "active"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                                : student.currentStatus === "suspended"
+                                  ? "bg-rose-50 text-rose-700 border-rose-100"
+                                  : "bg-slate-50 text-slate-400 border-slate-100"
+                            }`}
+                          >
+                            {student.currentStatus === "none"
+                              ? "Sem Bolsa"
+                              : student.currentStatus === "active"
+                                ? "Ativa"
+                                : student.currentStatus === "pending"
+                                  ? "Pendente"
+                                  : "Suspenso"}
+                          </div>
+                        </div>
 
-                           <div className="flex gap-2 pt-4 border-t border-slate-50">
-                              {student.currentStatus !== 'active' ? (
-                                <button 
-                                  onClick={() => notifyScholarshipUpdate(student.studentId, student.studentName, student.enrolledCount, 'active')}
-                                  className="flex-1 bg-emerald-600 text-white rounded-xl py-2.5 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100"
-                                >
-                                  Aprovar Bolsa
-                                </button>
-                              ) : (
-                                <button 
-                                  onClick={() => notifyScholarshipUpdate(student.studentId, student.studentName, student.enrolledCount, 'suspended')}
-                                  className="flex-1 bg-white text-rose-600 border border-rose-100 rounded-xl py-2.5 text-[9px] font-black uppercase tracking-widest hover:bg-rose-50 transition-all"
-                                >
-                                  Suspender
-                                </button>
-                              )}
-                              <button 
-                                onClick={() => notifyScholarshipUpdate(student.studentId, student.studentName, student.enrolledCount, 'cancelled')}
-                                className="px-4 bg-slate-50 text-slate-400 rounded-xl py-2.5 text-[9px] font-black uppercase tracking-widest hover:bg-slate-100 transition-all"
-                              >
-                                Cancelar
-                              </button>
-                           </div>
+                        <div className="flex gap-2 pt-4 border-t border-slate-50 border-dashed">
+                          {student.currentStatus !== "active" ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                notifyScholarshipUpdate(
+                                  student.studentId,
+                                  student.studentName,
+                                  student.enrolledCount,
+                                  "active",
+                                  student.originalStudentId,
+                                );
+                              }}
+                              className="flex-1 bg-emerald-600 text-white rounded-xl py-2.5 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100"
+                            >
+                              Aprovar Bolsa
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                notifyScholarshipUpdate(
+                                  student.studentId,
+                                  student.studentName,
+                                  student.enrolledCount,
+                                  "suspended",
+                                  student.originalStudentId,
+                                );
+                              }}
+                              className="flex-1 bg-white text-rose-600 border border-rose-100 rounded-xl py-2.5 text-[9px] font-black uppercase tracking-widest hover:bg-rose-50 transition-all"
+                            >
+                              Suspender
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              notifyScholarshipUpdate(
+                                student.studentId,
+                                student.studentName,
+                                student.enrolledCount,
+                                "cancelled",
+                                student.originalStudentId,
+                              );
+                            }}
+                            className="px-4 bg-slate-50 text-slate-400 rounded-xl py-2.5 text-[9px] font-black uppercase tracking-widest hover:bg-slate-100 transition-all hover:text-rose-600 hover:bg-rose-50 border hover:border-rose-100 border-transparent transition-all"
+                          >
+                            Cancelar
+                          </button>
                         </div>
-                      ))}
-                      {getStudentsEligibility().length === 0 && (
-                        <div className="col-span-full py-20 text-center border-4 border-dashed border-slate-50 rounded-[3rem]">
-                           <AlertTriangle className="w-12 h-12 text-slate-100 mx-auto mb-4" />
-                           <p className="text-slate-300 font-black uppercase text-xs">Nenhum aluno atingiu os critérios para bolsa ainda</p>
-                        </div>
-                      )}
-                   </div>
+                      </div>
+                    ))}
+                    {getStudentsEligibility().length === 0 && (
+                      <div className="col-span-full py-20 text-center border-4 border-dashed border-slate-50 rounded-[3rem]">
+                        <AlertTriangle className="w-12 h-12 text-slate-100 mx-auto mb-4" />
+                        <p className="text-slate-300 font-black uppercase text-xs">
+                          Nenhum aluno cadastrado no sistema comercial ou acadêmico
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            ) : activeTab === 'users' ? (
+            ) : activeTab === "users" ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {filteredUsers.map((u) => (
-                  <div key={u.uid} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
-                    {u.role === 'admin' && (
+                  <div
+                    key={u.uid}
+                    className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all group relative overflow-hidden"
+                  >
+                    {u.role === "admin" && (
                       <div className="absolute top-0 right-0 p-4">
                         <ShieldCheck className="w-6 h-6 text-emerald-100" />
                       </div>
@@ -388,45 +547,69 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, initi
                     <div className="flex items-center gap-5">
                       <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center border-2 border-slate-100">
                         {u.photoURL ? (
-                          <img src={u.photoURL} alt="" className="w-full h-full rounded-2xl object-cover" />
+                          <img
+                            src={u.photoURL}
+                            alt=""
+                            className="w-full h-full rounded-2xl object-cover"
+                          />
                         ) : (
                           <Users className="w-6 h-6 text-slate-300" />
                         )}
                       </div>
                       <div className="flex-1">
-                        <h4 className="text-sm font-black text-slate-900 uppercase tracking-tight truncate">{u.name}</h4>
-                        <p className="text-[10px] text-slate-400 font-bold tracking-tight mb-3 truncate">{u.email}</p>
-                        
+                        <h4 className="text-sm font-black text-slate-900 uppercase tracking-tight truncate">
+                          {u.name}
+                        </h4>
+                        <p className="text-[10px] text-slate-400 font-bold tracking-tight mb-3 truncate">
+                          {u.email}
+                        </p>
+
                         <div className="flex items-center gap-2">
-                           {u.email?.toLowerCase() === 'eduardofabian435@gmail.com' ? (
-                             <span className="px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-slate-900 text-white border border-slate-900 shadow-lg shadow-slate-200">
-                               Criador / Master
-                             </span>
-                           ) : (
-                            <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${
-                              u.role === 'admin' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 
-                              u.role === 'teacher' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' :
-                              'bg-slate-100 text-slate-500 border-slate-200'
-                            }`}>
-                               {u.role === 'admin' ? 'Administrador' : u.role === 'teacher' ? 'Professor' : 'Usuário'}
-                             </span>
-                           )}
-                           <span className="text-[9px] text-slate-300 font-bold uppercase tracking-widest leading-none">
-                             v{u.acceptedTermsVersion || '1.0'}
-                           </span>
-                           <code className="text-[8px] text-slate-400 bg-slate-50 px-2 py-0.5 rounded select-all cursor-help block mt-1 w-fit" title="User UID - Copie e use no ID do Professor no cadastro de cursos">
-                             ID: {u.uid}
-                           </code>
-                         </div>
-                       </div>
+                          {u.email?.toLowerCase() ===
+                          "eduardofabian435@gmail.com" ? (
+                            <span className="px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-slate-900 text-white border border-slate-900 shadow-lg shadow-slate-200">
+                              Criador / Master
+                            </span>
+                          ) : (
+                            <span
+                              className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${
+                                u.role === "admin"
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                                  : u.role === "teacher"
+                                    ? "bg-indigo-50 text-indigo-700 border-indigo-100"
+                                    : "bg-slate-100 text-slate-500 border-slate-200"
+                              }`}
+                            >
+                              {u.role === "admin"
+                                ? "Administrador"
+                                : u.role === "teacher"
+                                  ? "Professor"
+                                  : "Usuário"}
+                            </span>
+                          )}
+                          <span className="text-[9px] text-slate-300 font-bold uppercase tracking-widest leading-none">
+                            v{u.acceptedTermsVersion || "1.0"}
+                          </span>
+                          <code
+                            className="text-[8px] text-slate-400 bg-slate-50 px-2 py-0.5 rounded select-all cursor-help block mt-1 w-fit"
+                            title="User UID - Copie e use no ID do Professor no cadastro de cursos"
+                          >
+                            ID: {u.uid}
+                          </code>
+                        </div>
+                      </div>
 
                       <div className="opacity-0 group-hover:opacity-100 transition-all flex gap-2">
-                        {u.email?.toLowerCase() === 'eduardofabian435@gmail.com' ? (
-                          <div className="p-3 bg-slate-50 text-slate-400 rounded-2xl cursor-not-allowed" title="Conta Master Protegida">
+                        {u.email?.toLowerCase() ===
+                        "eduardofabian435@gmail.com" ? (
+                          <div
+                            className="p-3 bg-slate-50 text-slate-400 rounded-2xl cursor-not-allowed"
+                            title="Conta Master Protegida"
+                          >
                             <ShieldCheck className="w-5 h-5" />
                           </div>
-                        ) : u.role === 'admin' ? (
-                          <button 
+                        ) : u.role === "admin" ? (
+                          <button
                             onClick={() => handleToggleRole(u)}
                             className="p-3 bg-rose-50 text-rose-600 rounded-2xl hover:bg-rose-100 transition-colors"
                             title="Remover Admin"
@@ -434,7 +617,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, initi
                             <UserMinus className="w-5 h-5" />
                           </button>
                         ) : (
-                          <button 
+                          <button
                             onClick={() => handleToggleRole(u)}
                             className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl hover:bg-emerald-100 transition-colors"
                             title="Promover a Admin"
@@ -450,16 +633,23 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, initi
             ) : (
               <div className="space-y-3">
                 {logs.map((log) => (
-                  <div key={log.id} className="bg-white p-5 rounded-2xl border border-slate-100 flex items-start gap-5 hover:border-slate-300 transition-all group">
+                  <div
+                    key={log.id}
+                    className="bg-white p-5 rounded-2xl border border-slate-100 flex items-start gap-5 hover:border-slate-300 transition-all group"
+                  >
                     <div className="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center shrink-0">
                       <Clock className="w-5 h-5 text-indigo-400" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest leading-none">{log.userName || 'Sistema'}</span>
+                          <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest leading-none">
+                            {log.userName || "Sistema"}
+                          </span>
                           <span className="text-slate-300">•</span>
-                          <span className="text-[10px] font-bold text-slate-400 tracking-tight">{log.timestamp?.toDate().toLocaleString()}</span>
+                          <span className="text-[10px] font-bold text-slate-400 tracking-tight">
+                            {log.timestamp?.toDate().toLocaleString()}
+                          </span>
                         </div>
                         <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-slate-400 group-hover:text-slate-600 transition-colors">
                           <Globe className="w-3 h-3" />
@@ -467,14 +657,20 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, initi
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest border ${
-                          log.action.includes('DELETE') ? 'bg-rose-50 text-rose-700 border-rose-100' : 
-                          log.action.includes('CREATE') ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
-                          'bg-indigo-50 text-indigo-700 border-indigo-100'
-                        }`}>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest border ${
+                            log.action.includes("DELETE")
+                              ? "bg-rose-50 text-rose-700 border-rose-100"
+                              : log.action.includes("CREATE")
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                                : "bg-indigo-50 text-indigo-700 border-indigo-100"
+                          }`}
+                        >
                           {log.action}
                         </span>
-                        <p className="text-xs text-slate-600 font-medium truncate">{log.details}</p>
+                        <p className="text-xs text-slate-600 font-medium truncate">
+                          {log.details}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -488,7 +684,9 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, initi
         <div className="p-8 bg-slate-950 border-t border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] leading-none">Sistema de Auditoria em Tempo Real Ativo</span>
+            <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] leading-none">
+              Sistema de Auditoria em Tempo Real Ativo
+            </span>
           </div>
           <button
             onClick={onClose}

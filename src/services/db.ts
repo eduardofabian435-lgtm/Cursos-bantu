@@ -531,6 +531,7 @@ export interface StudentScholarship {
   startDate?: string;
   notes?: string;
   updatedAt: any;
+  originalStudentId?: string;
 }
 
 export const getScholarshipConfig = async (): Promise<ScholarshipConfig | null> => {
@@ -567,14 +568,34 @@ export const saveScholarshipConfig = async (data: Omit<ScholarshipConfig, 'id'>)
 
 export const updateStudentScholarship = async (data: Omit<StudentScholarship, 'id'>) => {
   try {
-    const q = query(collection(db, 'student_scholarships'), where('studentId', '==', data.studentId));
-    const snapshot = await getDocs(q);
-    
-    if (!snapshot.empty) {
-      await updateDoc(doc(db, 'student_scholarships', snapshot.docs[0].id), {
+    const idsToQuery = [data.studentId];
+    if (data.originalStudentId && data.originalStudentId !== data.studentId) {
+      idsToQuery.push(data.originalStudentId);
+    }
+
+    const matchingDocs: any[] = [];
+    for (const uid of idsToQuery) {
+      if (!uid) continue;
+      const q = query(collection(db, 'student_scholarships'), where('studentId', '==', uid));
+      const snapshot = await getDocs(q);
+      snapshot.forEach((doc) => {
+        if (!matchingDocs.some((d) => d.id === doc.id)) {
+          matchingDocs.push(doc);
+        }
+      });
+    }
+
+    if (matchingDocs.length > 0) {
+      // Update the first matching document
+      await updateDoc(doc(db, 'student_scholarships', matchingDocs[0].id), {
         ...data,
         updatedAt: serverTimestamp()
       });
+      // Clean up any other duplicate documents to prevent conflicting states in future lists
+      if (matchingDocs.length > 1) {
+        const deletePromises = matchingDocs.slice(1).map(d => deleteDoc(doc(db, 'student_scholarships', d.id)));
+        await Promise.all(deletePromises);
+      }
     } else {
       await addDoc(collection(db, 'student_scholarships'), {
         ...data,
